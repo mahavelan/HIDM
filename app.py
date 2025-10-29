@@ -1,75 +1,109 @@
-# app.py
-# Streamlit dashboard for Smart Adaptive Intrusion Detection System (SA-IDS)
-
 import streamlit as st
 import pandas as pd
 import numpy as np
-import time
+import math
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from imblearn.over_sampling import SMOTE
+from hybrid_models import build_cnn_bilstm_attention
+import tensorflow as tf
+from tensorflow.keras import callbacks, optimizers
 import matplotlib.pyplot as plt
-from hybrid_models import preprocess_data, train_or_load_model, predict_with_severity
 
-st.set_page_config(page_title="Smart Adaptive Intrusion Detection System", layout="wide")
+st.set_page_config(page_title="Hybrid IDS System", layout="wide")
 
-st.title("🧠 Smart Adaptive Intrusion Detection System (SA-IDS)")
-st.markdown("### Real-Time Attack Monitoring with Severity Scoring")
+st.title("🚨 Cybersecurity Intrusion Detection System (IDS)")
+st.markdown("**Detect and analyze DDoS attacks using a hybrid CNN + BiLSTM + Attention model**")
 
-# ------------------------------
-# Load dataset
-# ------------------------------
-uploaded_file = st.file_uploader("Upload Network Traffic CSV", type=["csv"])
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
-    st.success("✅ Dataset uploaded successfully!")
-else:
-    st.info("Using default dataset (dataset.csv)")
-    df = pd.read_csv("dataset.csv")
+# --- Load Dataset ---
+@st.cache_data
+def load_data(path):
+    df = pd.read_csv(path)
+    return df
 
-st.write(f"**Dataset shape:** {df.shape}")
+try:
+    df = load_data("dataset.csv")
+    st.success(f"✅ Loaded dataset with shape {df.shape}")
+except Exception as e:
+    st.error("❌ Dataset not found! Please add `dataset.csv` in the same folder.")
+    st.stop()
 
-# ------------------------------
-# Preprocess and Train model (quick)
-# ------------------------------
-st.write("🔄 Preprocessing & Model Training...")
-X, y, le, scaler = preprocess_data(df)
-n_classes = len(np.unique(y))
-model = train_or_load_model(X, y, n_classes, epochs=2)
-st.success("✅ Model trained successfully!")
+# --- Preprocessing ---
+label_col = [c for c in df.columns if 'label' in c.lower() or 'attack' in c.lower()][0]
+y = df[label_col].astype(str).str.upper()
+X = df.drop(columns=[label_col])
 
-# ------------------------------
-# Real-time Simulation
-# ------------------------------
-st.subheader("⚡ Real-Time Simulation")
+# Drop non-numeric
+X = X.select_dtypes(include=[np.number]).fillna(0)
+X = X.replace([np.inf, -np.inf], 0)
+le = LabelEncoder()
+y_enc = le.fit_transform(y)
 
-simulation_speed = st.slider("Simulation Speed (seconds per batch)", 1, 10, 3)
-start_button = st.button("🚀 Start Real-Time Detection")
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(X.values, y_enc, test_size=0.2, random_state=42, stratify=y_enc)
 
-if start_button:
-    st.info("Simulation running... Please wait")
-    placeholder_chart = st.empty()
-    placeholder_table = st.empty()
+# Scaling and balancing
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
+if len(np.unique(y_train)) > 1:
+    sm = SMOTE(random_state=42)
+    X_train, y_train = sm.fit_resample(X_train, y_train)
 
-    chunk_size = 200
-    for start in range(0, len(df), chunk_size):
-        end = min(start + chunk_size, len(df))
-        batch_df = df.iloc[start:end]
-        batch_X = scaler.transform(batch_df.select_dtypes(include=[np.number]).fillna(0.0))
-        results = predict_with_severity(model, batch_X, le, batch_df)
+# Reshape for CNN
+s = int(math.ceil(math.sqrt(X_train.shape[1])))
+def reshape(X):
+    if X.shape[1] < s*s:
+        X = np.pad(X, ((0,0),(0,s*s - X.shape[1])), 'constant')
+    return X.reshape((X.shape[0], s, s, 1)).astype(np.float32)
 
-        result_df = pd.DataFrame(results)
-        benign = (result_df["Prediction"] == "BENIGN").sum()
-        attacks = len(result_df) - benign
+X_train_r = reshape(X_train)
+X_test_r = reshape(X_test)
 
-        fig, ax = plt.subplots(1, 2, figsize=(10, 4))
-        ax[0].pie([benign, attacks], labels=["BENIGN", "ATTACK"], autopct="%1.1f%%", colors=["#8bc34a", "#f44336"])
-        ax[0].set_title("Traffic Composition")
+# --- Model Training ---
+model = build_cnn_bilstm_attention((s, s, 1), len(np.unique(y_enc)))
+model.compile(optimizer=optimizers.Adam(1e-3), loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+es = callbacks.EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
 
-        ax[1].bar(result_df.index, result_df["Severity"], color=["#f44336" if s > 60 else "#ff9800" if s > 30 else "#8bc34a" for s in result_df["Severity"]])
-        ax[1].set_title("Attack Severity per Record")
-        ax[1].set_xlabel("Record Index")
-        ax[1].set_ylabel("Severity (0-100)")
+with st.spinner("⏳ Training model... Please wait"):
+    history = model.fit(X_train_r, y_train, validation_data=(X_test_r, y_test), epochs=5, batch_size=128, callbacks=[es], verbose=0)
 
-        placeholder_chart.pyplot(fig)
-        placeholder_table.dataframe(result_df.head(10))
-        time.sleep(simulation_speed)
+st.success("✅ Model training completed!")
 
-    st.success("✅ Simulation completed!")
+# --- Evaluation ---
+preds = np.argmax(model.predict(X_test_r), axis=1)
+acc = accuracy_score(y_test, preds)
+report = classification_report(y_test, preds, target_names=le.classes_, zero_division=0, output_dict=True)
+cm = confusion_matrix(y_test, preds)
+
+st.metric("Model Accuracy", f"{acc*100:.2f}%")
+
+st.subheader("Classification Report")
+st.dataframe(pd.DataFrame(report).T)
+
+st.subheader("Confusion Matrix")
+st.dataframe(pd.DataFrame(cm, index=le.classes_, columns=le.classes_))
+
+# --- Plot Training Curves ---
+st.subheader("Training Performance")
+fig, ax = plt.subplots(1, 2, figsize=(12,4))
+ax[0].plot(history.history['loss'], label='Train Loss')
+ax[0].plot(history.history['val_loss'], label='Val Loss')
+ax[0].legend(); ax[0].set_title('Loss Curve')
+ax[1].plot(history.history['accuracy'], label='Train Acc')
+ax[1].plot(history.history['val_accuracy'], label='Val Acc')
+ax[1].legend(); ax[1].set_title('Accuracy Curve')
+st.pyplot(fig)
+
+# --- Real-time Prediction ---
+st.subheader("🔎 Predict from New Input")
+uploaded = st.file_uploader("Upload a small CSV sample for testing", type=['csv'])
+if uploaded:
+    new_df = pd.read_csv(uploaded)
+    new_df = new_df.select_dtypes(include=[np.number]).fillna(0)
+    new_df = scaler.transform(new_df)
+    new_df_r = reshape(new_df)
+    preds_new = np.argmax(model.predict(new_df_r), axis=1)
+    preds_labels = le.inverse_transform(preds_new)
+    st.write("Predictions:", preds_labels)
