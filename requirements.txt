@@ -1,7 +1,7 @@
 streamlit
 tensorflow
 scikit-learn
+imbalanced-learn
 pandas
 numpy
 matplotlib
-imbalanced-learn
