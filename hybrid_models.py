@@ -1,7 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras import layers, models
 
-# ---------------- Model 1: CNN2D + BiLSTM + Attention ----------------
 def build_cnn_bilstm_attention(input_shape, n_classes):
     inp = layers.Input(shape=input_shape)
     x = layers.Conv2D(32, (3,3), activation='relu', padding='same')(inp)
@@ -21,7 +20,6 @@ def build_cnn_bilstm_attention(input_shape, n_classes):
     out = layers.Dense(n_classes, activation='softmax')(x)
     return models.Model(inp, out)
 
-# ---------------- Model 2: Conv1D + BiLSTM + Attention ----------------
 def build_conv1d_bilstm_attention(input_length, n_classes):
     inp = layers.Input(shape=(input_length,1))
     x = layers.Conv1D(64, 3, activation='relu', padding='same')(inp)
@@ -39,7 +37,6 @@ def build_conv1d_bilstm_attention(input_length, n_classes):
     out = layers.Dense(n_classes, activation='softmax')(x)
     return models.Model(inp, out)
 
-# ---------------- Model 3: Transformer Encoder ----------------
 def build_transformer_encoder(input_shape, n_classes, d_model=64, num_heads=4, dff=128):
     inp = layers.Input(shape=input_shape)
     attn = layers.MultiHeadAttention(num_heads=num_heads, key_dim=d_model)(inp, inp)
