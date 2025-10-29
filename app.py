@@ -7,7 +7,11 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 from imblearn.over_sampling import SMOTE
 from tensorflow.keras import layers, optimizers, callbacks
-from hybrid_models import build_cnn_bilstm_attention, build_conv1d_bilstm_attention, build_transformer_encoder
+from hybrid_models import (
+    build_cnn_bilstm_attention,
+    build_conv1d_bilstm_attention,
+    build_transformer_encoder
+)
 
 st.set_page_config(page_title="Hybrid IDS System", layout="wide")
 st.title("🚨 Intrusion Detection Hybrid Deep Learning System")
@@ -63,7 +67,7 @@ model1 = build_cnn_bilstm_attention((s, s, 1), n_classes)
 model1.compile(optimizer=optimizers.Adam(1e-3), loss='sparse_categorical_crossentropy', metrics=['accuracy'])
 es = callbacks.EarlyStopping(monitor='val_loss', patience=2, restore_best_weights=True)
 with st.spinner("Training Model 1..."):
-    model1.fit(X_train_img, y_train, validation_data=(X_test_img, y_test), epochs=3, batch_size=128, callbacks=[es], verbose=0)
+    model1.fit(X_train_img, y_train, validation_data=(X_test_img, y_test), epochs=2, batch_size=128, callbacks=[es], verbose=0)
 p1 = model1.predict(X_test_img)
 st.success("✅ Model 1 Completed")
 
@@ -73,7 +77,7 @@ X_test_c1 = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
 model2 = build_conv1d_bilstm_attention(X_train_c1.shape[1], n_classes)
 model2.compile(optimizer=optimizers.Adam(1e-3), loss='sparse_categorical_crossentropy', metrics=['accuracy'])
 with st.spinner("Training Model 2..."):
-    model2.fit(X_train_c1, y_train, validation_data=(X_test_c1, y_test), epochs=3, batch_size=128, callbacks=[es], verbose=0)
+    model2.fit(X_train_c1, y_train, validation_data=(X_test_c1, y_test), epochs=2, batch_size=128, callbacks=[es], verbose=0)
 p2 = model2.predict(X_test_c1)
 st.success("✅ Model 2 Completed")
 
@@ -87,7 +91,7 @@ X_test_proj = proj(X_test_r).numpy()
 model3 = build_transformer_encoder((X_train_proj.shape[1], d_model), n_classes)
 model3.compile(optimizer=optimizers.Adam(1e-3), loss='sparse_categorical_crossentropy', metrics=['accuracy'])
 with st.spinner("Training Model 3..."):
-    model3.fit(X_train_proj, y_train, validation_data=(X_test_proj, y_test), epochs=3, batch_size=128, callbacks=[es], verbose=0)
+    model3.fit(X_train_proj, y_train, validation_data=(X_test_proj, y_test), epochs=2, batch_size=128, callbacks=[es], verbose=0)
 p3 = model3.predict(X_test_proj)
 st.success("✅ Model 3 Completed")
 
